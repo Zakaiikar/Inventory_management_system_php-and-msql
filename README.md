@@ -1,6 +1,6 @@
 # Inventory Management System
 
-**Created by Zakaiikar Amiin**
+**Created by Zakariye iikar Amiin**
 
 This project is a simple inventory management system built with PHP and MySQL. It allows users to manage products, perform CRUD operations, and register new users with different roles (admin and user).
 
