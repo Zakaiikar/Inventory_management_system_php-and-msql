@@ -4,15 +4,28 @@ if (!isset($_SESSION['user_id'])) {
     header("location: login.php");
     exit();
 }
+
+// Database connection
 $con = new mysqli("localhost", "root", "", "inv_db");
 if ($con->connect_error) {
     die("Couldn't connect to the server: " . $con->connect_error);
 }
+
+// Fetch user details (assuming these are stored in the session or database)
+$user_id = $_SESSION['user_id'];
+$userSql = "SELECT username, role, active FROM users WHERE id = $user_id";
+$userResult = $con->query($userSql);
+if ($userResult->num_rows > 0) {
+    $userData = $userResult->fetch_assoc();
+    $username = $userData['username'];
+    $role = $userData['role'];
+    $isActive = $userData['active'];
+} else {
+    die("User not found.");
+}
+
 // Fetch inventory data
-$inventorySql = "SELECT COUNT(*) AS total_products, 
-                        SUM(CASE WHEN stock < 5 THEN 1 ELSE 0 END) AS low_stock, 
-                        SUM(CASE WHEN stock = 0 THEN 1 END) AS out_of_stock 
-                  FROM products";
+$inventorySql = "SELECT COUNT(*) AS total_products FROM products";
 $inventoryResult = $con->query($inventorySql);
 $inventoryData = $inventoryResult->fetch_assoc();
 
@@ -27,44 +40,32 @@ $userGrowthSql = "
 ";
 $userGrowthResult = $con->query($userGrowthSql);
 
-// Fetch total sales data
-$salesSql = "
+// Fetch total orders data
+$ordersSql = "
     SELECT 
-        SUM(quantity) AS total_quantity,
-        COUNT(DISTINCT id) AS total_sales 
-    FROM sales
+        COUNT(*) AS total_orders, 
+        SUM(quantity) AS total_quantity 
+    FROM orders
 ";
-$salesResult = $con->query($salesSql);
-$salesData = $salesResult->fetch_assoc();
-
-// Fetch logged-in user details
-$userId = $_SESSION['user_id'];
-$stmt = $con->prepare("SELECT username, active, role FROM users WHERE id = ?");
-$stmt->bind_param("i", $userId);
-$stmt->execute();
-$userResult = $stmt->get_result();
-$userRow = $userResult->fetch_assoc();
-
-$username = htmlspecialchars($userRow['username']);
-$isActive = $userRow['active'] == 1; // Check if the user is active
-$role = $userRow['role']; // Get user role
+$ordersResult = $con->query($ordersSql);
+$ordersData = $ordersResult->fetch_assoc();
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Product Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Dashboard</title>
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-gray-100">
 
 <div class="flex h-screen">
-    <!-- Sidebar -->
-    <div class="w-48 bg-gray-800 text-white shadow-lg p-5 fixed h-full">
+<!-- Sidebar -->
+<div class="w-48 bg-gray-800 text-white shadow-lg p-5 fixed h-full">
     <h2 class="text-lg font-bold mb-5">Dashboard</h2>
     <div class="mb-5">
         <p class="text-sm">Logged in as: <span class="font-semibold"><?php echo $username; ?></span></p>
@@ -136,151 +137,163 @@ $role = $userRow['role']; // Get user role
     </ul>
 </div>
 
-    <!-- Main Content -->
-    <div class="flex-1 ml-48 p-5 overflow-y-auto">
-        <h1 class="text-3xl font-bold mb-5">Dashboard Overview</h1>
+<!-- Main Content -->
+<div class="flex-1 ml-48 p-5 overflow-y-auto">
+    <h1 class="text-3xl font-bold mb-5">Dashboard Overview</h1>
 
-        <!-- Add Product Button -->
-        <?php if ($role === 'admin'): ?>
-            <div class="mb-5">
-                <a href="insert.php" class="inline-flex items-center px-4 py-2 bg-blue-500 text-white font-semibold rounded hover:bg-blue-600 transition">
-                    <i class="fas fa-plus mr-2"></i> Add New Product
-                </a>
-            </div>
-        <?php endif; ?>
+    <!-- Add Product Button -->
+    <?php if ($role === 'admin'): ?>
+        <div class="mb-5">
+            <a href="insert.php" class="inline-flex items-center px-4 py-2 bg-blue-500 text-white font-semibold rounded hover:bg-blue-600 transition">
+                <i class="fas fa-plus mr-2"></i> Add New Product
+            </a>
+        </div>
+    <?php endif; ?>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Total Sales Overview -->
-            <div class="bg-white p-5 rounded shadow mb-5">
-                <h2 class="text-xl font-semibold mb-3">Total Sales Overview</h2>
-                <p>Total Sales: <span id="totalSales"><?php echo $salesData['total_sales']; ?></span></p>
-                <p>Total Quantity Sold: <span id="totalQuantity"><?php echo $salesData['total_quantity']; ?></span></p>
-            </div>
-
-            <!-- User Growth Chart -->
-            <div class="bg-white p-5 rounded shadow mb-5">
-                <h2 class="text-xl font-semibold mb-3">User Growth</h2>
-                <div class="h-40">
-                    <canvas id="userGrowthChart"></canvas>
+    <!-- Updated Two Containers -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Total Orders Overview -->
+        <div class="bg-gradient-to-r from-purple-500 to-purple-600 p-5 rounded-lg shadow-lg text-white">
+            <h2 class="text-xl font-semibold mb-3">Total Orders Overview</h2>
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-lg">Total Orders</p>
+                    <p class="text-4xl font-bold"><?php echo $ordersData['total_orders']; ?></p>
                 </div>
+                <div class="bg-white bg-opacity-20 p-3 rounded-full">
+                    <i class="fas fa-shopping-cart text-2xl"></i>
+                </div>
+            </div>
+            <div class="mt-4">
+                <p class="text-lg">Total Quantity Sold</p>
+                <p class="text-3xl font-bold"><?php echo $ordersData['total_quantity']; ?></p>
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Inventory Overview -->
-            <div class="bg-white p-5 rounded shadow mb-5">
-                <h2 class="text-xl font-semibold mb-3">Inventory Overview</h2>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-blue-100 p-4 rounded">
-                        <h3 class="text-lg">Total Products</h3>
-                        <p class="text-2xl font-bold"><?php echo $inventoryData['total_products']; ?></p>
-                    </div>
-                  
+        <!-- Inventory Overview -->
+        <div class="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-lg shadow-lg text-white">
+            <h2 class="text-xl font-semibold mb-3">Inventory Overview</h2>
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-lg">Total Products</p>
+                    <p class="text-4xl font-bold"><?php echo $inventoryData['total_products']; ?></p>
+                </div>
+                <div class="bg-white bg-opacity-20 p-3 rounded-full">
+                    <i class="fas fa-boxes text-2xl"></i>
                 </div>
             </div>
         </div>
-
-        <!-- Footer -->
-        <footer class="bg-gray-900 text-white py-8 mt-5">
-            <div class="container mx-auto px-6">
-                <div class="flex flex-col md:flex-row justify-between">
-                    <div class="mb-5 md:mb-0">
-                        <h3 class="text-lg font-semibold mb-2">Contact Us</h3>
-                        <p>Email: Raazh@gmail.com</p>
-                        <p>Phone: (252) 61-87836233</p>
-                    </div>
-                    <div class="mb-5 md:mb-0">
-                        <h3 class="text-lg font-semibold mb-2">Follow Us</h3>
-                        <div class="flex space-x-4">
-                            <a href="#" class="hover:text-gray-400"><i class="fab fa-facebook-square"></i></a>
-                            <a href="#" class="hover:text-gray-400"><i class="fab fa-twitter-square"></i></a>
-                            <a href="#" class="hover:text-gray-400"><i class="fab fa-instagram-square"></i></a>
-                            <a href="#" class="hover:text-gray-400"><i class="fab fa-linkedin"></i></a>
-                        </div>
-                    </div>
-                    <div class="mb-5 md:mb-0">
-                        <h3 class="text-lg font-semibold mb-2">Quick Links</h3>
-                        <ul>
-                            <li><a href="dashboard.php" class="hover:text-gray-400">Dashboard</a></li>
-                            <li><a href="product_list.php" class="hover:text-gray-400">View Products</a></li>
-                            <li><a href="sales.php" class="hover:text-gray-400">Sales Reports</a></li>
-                        </ul>
-                    </div>
-                </div>
-                <div class="text-center mt-4">
-                    <p>&copy; <?php echo date("Y"); ?> Your Company Name. All rights reserved.</p>
-                </div>
-            </div>
-        </footer>
     </div>
+
+    <!-- User Growth Chart -->
+    <div class="bg-white p-5 rounded shadow mb-5 mt-5">
+        <h2 class="text-xl font-semibold mb-3">User Growth</h2>
+        <div class="h-40">
+            <canvas id="userGrowthChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 text-white py-8 mt-5">
+        <div class="container mx-auto px-6">
+            <div class="flex flex-col md:flex-row justify-between">
+                <div class="mb-5 md:mb-0">
+                    <h3 class="text-lg font-semibold mb-2">Contact Us</h3>
+                    <p>Email: Zakariyeikar@gmail.com</p>
+                    <p>Phone: (252) 61-7712723</p>
+                </div>
+                <div class="mb-5 md:mb-0">
+                    <h3 class="text-lg font-semibold mb-2">Follow Us</h3>
+                    <div class="flex space-x-4">
+                        <a href="#" class="hover:text-gray-400"><i class="fab fa-facebook-square"></i></a>
+                        <a href="#" class="hover:text-gray-400"><i class="fab fa-twitter-square"></i></a>
+                        <a href="#" class="hover:text-gray-400"><i class="fab fa-instagram-square"></i></a>
+                        <a href="#" class="hover:text-gray-400"><i class="fab fa-linkedin"></i></a>
+                    </div>
+                </div>
+                <div class="mb-5 md:mb-0">
+                    <h3 class="text-lg font-semibold mb-2">Quick Links</h3>
+                    <ul>
+                        <li><a href="dashboard.php" class="hover:text-gray-400">Dashboard</a></li>
+                        <li><a href="product_list.php" class="hover:text-gray-400">View Products</a></li>
+                        <li><a href="sales.php" class="hover:text-gray-400">Sales Reports</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="text-center mt-4">
+                <p>&copy; <?php echo date("Y"); ?> Your Company Name. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+</div>
 </div>
 
 <script>
-    // Prepare data for the user growth chart
-    const userGrowthData = {
-        labels: [],
-        datasets: [
-            {
-                label: 'Active Users',
-                data: [],
-                backgroundColor: 'rgba(75, 85, 99, 0.8)',
-                borderWidth: 1,
-                borderColor: 'rgba(30, 41, 59, 1)',
-            },
-            {
-                label: 'Inactive Users',
-                data: [],
-                backgroundColor: 'rgba(255, 99, 132, 0.8)',
-                borderWidth: 1,
-                borderColor: 'rgba(255, 99, 132, 1)',
+// Prepare data for the user growth chart
+const userGrowthData = {
+    labels: [],
+    datasets: [
+        {
+            label: 'Active Users',
+            data: [],
+            backgroundColor: 'rgba(75, 85, 99, 0.8)',
+            borderWidth: 1,
+            borderColor: 'rgba(30, 41, 59, 1)',
+        },
+        {
+            label: 'Inactive Users',
+            data: [],
+            backgroundColor: 'rgba(255, 99, 132, 0.8)',
+            borderWidth: 1,
+            borderColor: 'rgba(255, 99, 132, 1)',
+        }
+    ]
+};
+
+<?php
+while ($row = $userGrowthResult->fetch_assoc()) {
+    echo "userGrowthData.labels.push('" . $row['date'] . "');";
+    echo "userGrowthData.datasets[0].data.push(" . $row['active_count'] . ");"; // Active count
+    echo "userGrowthData.datasets[1].data.push(" . $row['inactive_count'] . ");"; // Inactive count
+}
+?>
+
+const userGrowthChartConfig = {
+    type: 'line',
+    data: userGrowthData,
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true
             }
-        ]
-    };
-
-    <?php
-    while ($row = $userGrowthResult->fetch_assoc()) {
-        echo "userGrowthData.labels.push('" . $row['date'] . "');";
-        echo "userGrowthData.datasets[0].data.push(" . $row['active_count'] . ");"; // Active count
-        echo "userGrowthData.datasets[1].data.push(" . $row['inactive_count'] . ");"; // Inactive count
-    }
-    ?>
-
-    const userGrowthChartConfig = {
-        type: 'line',
-        data: userGrowthData,
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true
-                }
-            },
-            plugins: {
-                legend: {
-                    position: 'top',
-                    labels: {
-                        color: 'rgba(30, 41, 59, 1)'
-                    }
-                },
-                title: {
-                    display: true,
-                    text: 'User Growth Over Time',
-                    font: {
-                        size: 20,
-                        weight: 'bold',
-                        family: 'Arial, sans-serif',
-                    },
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+                labels: {
                     color: 'rgba(30, 41, 59, 1)'
                 }
             },
+            title: {
+                display: true,
+                text: 'User Growth Over Time',
+                font: {
+                    size: 20,
+                    weight: 'bold',
+                    family: 'Arial, sans-serif',
+                },
+                color: 'rgba(30, 41, 59, 1)'
+            }
         },
-    };
+    },
+};
 
-    const userGrowthChart = new Chart(
-        document.getElementById('userGrowthChart'),
-        userGrowthChartConfig
-    );
+const userGrowthChart = new Chart(
+    document.getElementById('userGrowthChart'),
+    userGrowthChartConfig
+);
 </script>
 
 </body>

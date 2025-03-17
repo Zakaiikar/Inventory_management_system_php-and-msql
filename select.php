@@ -191,12 +191,26 @@ $result = $stmt->get_result();
 <?php
 // Handle deletion
 if (isset($_GET['did'])) {
-    $pid = $_GET['did'];
-    $sql = "DELETE FROM products WHERE id=?";
-    $stmt = $con->prepare($sql);
-    $stmt->bind_param("i", $pid);
-    if ($stmt->execute()) {
-        echo "<script>alert('Product with ID $pid was deleted successfully'); window.location.href='select.php';</script>";
+    $pid = $_GET['did']; // Product ID to delete
+
+    // Step 1: Delete related records in the `orders` table
+    $deleteOrdersSql = "DELETE FROM orders WHERE product_id = ?";
+    $deleteOrdersStmt = $con->prepare($deleteOrdersSql);
+    $deleteOrdersStmt->bind_param("i", $pid);
+
+    if ($deleteOrdersStmt->execute()) {
+        // Step 2: Delete the product from the `products` table
+        $deleteProductSql = "DELETE FROM products WHERE id = ?";
+        $deleteProductStmt = $con->prepare($deleteProductSql);
+        $deleteProductStmt->bind_param("i", $pid);
+
+        if ($deleteProductStmt->execute()) {
+            echo "<script>alert('Product with ID $pid was deleted successfully'); window.location.href='select.php';</script>";
+        } else {
+            echo "<script>alert('Error deleting product: " . $deleteProductStmt->error . "');</script>";
+        }
+    } else {
+        echo "<script>alert('Error deleting related orders: " . $deleteOrdersStmt->error . "');</script>";
     }
 }
 

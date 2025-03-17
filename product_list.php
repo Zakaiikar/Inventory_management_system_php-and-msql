@@ -8,6 +8,63 @@ if ($con->connect_error) {
 // Fetch products
 $sql = "SELECT * FROM products";
 $result = $con->query($sql);
+
+// Initialize variables for notification
+$notification = null;
+
+// Handle order submission
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    // Retrieve and sanitize input
+    $customerName = htmlspecialchars($_POST['customer_name']);
+    $productId = (int)$_POST['product_id'];
+    $quantity = (int)$_POST['quantity'];
+    $email = htmlspecialchars($_POST['email']);
+
+    // Validate product ID
+    $productCheck = $con->prepare("SELECT * FROM products WHERE id = ?");
+    $productCheck->bind_param("i", $productId);
+    $productCheck->execute();
+    $productResult = $productCheck->get_result();
+
+    if ($productResult->num_rows === 0) {
+        $notification = "<div class='toast align-items-center text-bg-danger border-0' role='alert' aria-live='assertive' aria-atomic='true'>
+                            <div class='d-flex'>
+                                <div class='toast-body'>
+                                    The selected product does not exist.
+                                </div>
+                                <button type='button' class='btn-close btn-close-white' data-bs-dismiss='toast' aria-label='Close'></button>
+                            </div>
+                        </div>";
+    } else {
+        // Insert order into the database
+        $sql = "INSERT INTO orders (customer_name, product_id, quantity, email) VALUES (?, ?, ?, ?)";
+        $stmt = $con->prepare($sql);
+        $stmt->bind_param("siis", $customerName, $productId, $quantity, $email);
+
+        if ($stmt->execute()) {
+            // Prepare success notification
+            $notification = "<div class='toast align-items-center text-bg-success border-0' role='alert' aria-live='assertive' aria-atomic='true'>
+                                <div class='d-flex'>
+                                    <div class='toast-body'>
+                                        Thank you, $customerName! Your order has been placed successfully.
+                                    </div>
+                                    <button type='button' class='btn-close btn-close-white' data-bs-dismiss='toast' aria-label='Close'></button>
+                                </div>
+                            </div>";
+        } else {
+            $notification = "<div class='toast align-items-center text-bg-danger border-0' role='alert' aria-live='assertive' aria-atomic='true'>
+                                <div class='d-flex'>
+                                    <div class='toast-body'>
+                                        There was an issue placing your order: " . htmlspecialchars($stmt->error) . "
+                                    </div>
+                                    <button type='button' class='btn-close btn-close-white' data-bs-dismiss='toast' aria-label='Close'></button>
+                                </div>
+                            </div>";
+        }
+
+        $stmt->close();
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -23,24 +80,30 @@ $result = $con->query($sql);
             background-color: #f8f9fa; /* Light gray background */
         }
         .card {
-            transition: transform 0.3s ease, box-shadow 0.3s ease; /* Smooth hover effect */
-            border: none; /* Remove default border */
-            border-radius: 1.25rem; /* Slightly more rounded corners */
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            border: none;
+            border-radius: 1.25rem;
         }
         .card:hover {
-            transform: translateY(-5px); /* Lift on hover */
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4); /* Enhanced shadow effect */
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
         }
         .card-img-top {
-            height: 200px; /* Fixed height for images */
-            object-fit: cover; /* Keep aspect ratio */
-            border-top-left-radius: 1.25rem; /* Matching rounded corners */
-            border-top-right-radius: 1.25rem; /* Matching rounded corners */
+            height: 200px;
+            object-fit: cover;
+            border-top-left-radius: 1.25rem;
+            border-top-right-radius: 1.25rem;
         }
         .page-title {
-            font-size: 2.5rem; /* Larger title */
+            font-size: 2.5rem;
             font-weight: bold;
             color: #333;
+        }
+        .toast-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1050; /* Ensure it is above other elements */
         }
     </style>
 </head>
@@ -48,8 +111,6 @@ $result = $con->query($sql);
 <?php include 'Header.php'; ?>
     <div class="container my-5">
         <h1 class="mb-4 text-center page-title">Product List</h1>
-
-      
 
         <div class="row">
             <?php
@@ -79,10 +140,17 @@ $result = $con->query($sql);
         </div>
     </div>
 
+    <!-- Toast Notification Container -->
+    <div class="toast-container">
+        <?php if ($notification): ?>
+            <?php echo $notification; ?>
+        <?php endif; ?>
+    </div>
+
     <!-- Order Modal -->
     <div class="modal fade" id="orderModal" tabindex="-1" aria-labelledby="orderModalLabel" aria-hidden="true">
         <div class="modal-dialog">
-            <form action="process_order.php" method="POST">
+            <form action="" method="POST">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="orderModalLabel">Place Your Order</h5>
@@ -115,17 +183,23 @@ $result = $con->query($sql);
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         // Populate modal with product data
-        $('#orderModal').on('show.bs.modal', function (event) {
-            var button = $(event.relatedTarget);
-            var id = button.getAttribute('data-id');
-            var name = button.getAttribute('data-name');
-            var price = button.getAttribute('data-price');
+        document.getElementById('orderModal').addEventListener('show.bs.modal', function (event) {
+            var button = event.relatedTarget; // Button that triggered the modal
+            var id = button.getAttribute('data-id'); // Extract info from data-* attributes
 
-            var modal = $(this);
-            modal.find('#modalProductId').val(id);
-            modal.find('#customer_name').val('');
-            modal.find('#quantity').val(1);
-            modal.find('#email').val('');
+            // Update the modal's content.
+            var modal = this;
+            modal.querySelector('#modalProductId').value = id; // Set the hidden input for product_id
+            modal.querySelector('#customer_name').value = ''; // Reset customer name
+            modal.querySelector('#quantity').value = 1; // Reset quantity
+            modal.querySelector('#email').value = ''; // Reset email
+        });
+
+        // Show toast notifications
+        var toastElements = document.querySelectorAll('.toast');
+        toastElements.forEach(function (toastEl) {
+            var toast = new bootstrap.Toast(toastEl);
+            toast.show();
         });
     </script>
 </body>

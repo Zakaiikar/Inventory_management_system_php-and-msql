@@ -6,9 +6,10 @@ if ($con->connect_error) {
     die("Couldn't connect to the server: " . $con->connect_error);
 }
 
-$sql = "SELECT s.id, p.name AS product_name, s.quantity, s.sale_date, s.total_price 
-        FROM sales s 
-        JOIN products p ON s.product_id = p.id";
+// Fetch orders
+$sql = "SELECT o.id, o.customer_name, p.name AS product_name, o.quantity, o.email, o.created_at 
+        FROM orders o 
+        JOIN products p ON o.product_id = p.id";
 $result = $con->query($sql);
 ?>
 
@@ -17,7 +18,7 @@ $result = $con->query($sql);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sales Records</title>
+    <title>Order Records</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <?php include 'Header.php'; ?>
@@ -25,7 +26,7 @@ $result = $con->query($sql);
 <body class="bg-gray-900 text-gray-200">
 
     <div class="container mx-auto my-10 p-6 bg-white rounded-lg shadow-lg">
-        <h1 class="mb-6 text-3xl font-bold text-center text-gray-800">Sales Records</h1>
+        <h1 class="mb-6 text-3xl font-bold text-center text-gray-800">Order Records</h1>
 
         <!-- Back Button -->
         <div class="mb-3 text-center">
@@ -36,10 +37,11 @@ $result = $con->query($sql);
             <thead>
                 <tr class="bg-gray-800 text-white">
                     <th class="py-3 px-4 border-b">ID</th>
+                    <th class="py-3 px-4 border-b">Customer Name</th>
                     <th class="py-3 px-4 border-b">Product Name</th>
                     <th class="py-3 px-4 border-b">Quantity</th>
-                    <th class="py-3 px-4 border-b">Sale Date</th>
-                    <th class="py-3 px-4 border-b">Total Price</th>
+                    <th class="py-3 px-4 border-b">Email</th>
+                    <th class="py-3 px-4 border-b">Order Date</th>
                 </tr>
             </thead>
             <tbody>
@@ -48,14 +50,15 @@ $result = $con->query($sql);
                     while ($row = $result->fetch_assoc()) {
                         echo "<tr class='hover:bg-gray-100'>
                                 <td class='py-2 px-4 border-b text-black'>{$row['id']}</td>
+                                <td class='py-2 px-4 border-b text-black'>{$row['customer_name']}</td>
                                 <td class='py-2 px-4 border-b text-black'>{$row['product_name']}</td>
                                 <td class='py-2 px-4 border-b text-black'>{$row['quantity']}</td>
-                                <td class='py-2 px-4 border-b text-black'>{$row['sale_date']}</td>
-                                <td class='py-2 px-4 border-b text-black'>\$" . htmlspecialchars($row['total_price']) . "</td>
+                                <td class='py-2 px-4 border-b text-black'>{$row['email']}</td>
+                                <td class='py-2 px-4 border-b text-black'>{$row['created_at']}</td>
                               </tr>";
                     }
                 } else {
-                    echo "<tr><td colspan='5' class='text-center py-4'>No sales recorded.</td></tr>";
+                    echo "<tr><td colspan='6' class='text-center py-4'>No orders recorded.</td></tr>";
                 }
                 ?>
             </tbody>
@@ -63,16 +66,16 @@ $result = $con->query($sql);
 
         <!-- Chart Section -->
         <div class="mb-6">
-            <canvas id="salesChart" class="w-full h-64"></canvas>
+            <canvas id="ordersChart" class="w-full h-64"></canvas>
         </div>
     </div>
 
     <script>
         // Prepare data for the chart
-        const salesData = {
+        const ordersData = {
             labels: [],
             datasets: [{
-                label: 'Total Sales',
+                label: 'Orders by Product',
                 data: [],
                 backgroundColor: [
                     'rgba(45, 55, 72, 0.8)',
@@ -91,15 +94,15 @@ $result = $con->query($sql);
         // Reset the result pointer to fetch data for the chart
         $result->data_seek(0);
         while ($row = $result->fetch_assoc()) {
-            echo "salesData.labels.push('" . addslashes($row['product_name']) . "');";
-            echo "salesData.datasets[0].data.push(" . $row['total_price'] . ");";
+            echo "ordersData.labels.push('" . addslashes($row['product_name']) . "');";
+            echo "ordersData.datasets[0].data.push(" . $row['quantity'] . ");";
         }
         ?>
 
         // Chart configuration
         const config = {
-            type: 'doughnut',
-            data: salesData,
+            type: 'bar',
+            data: ordersData,
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -112,7 +115,7 @@ $result = $con->query($sql);
                     },
                     title: {
                         display: true,
-                        text: 'Sales by Product',
+                        text: 'Orders by Product',
                         font: {
                             size: 20,
                             weight: 'bold',
@@ -125,8 +128,8 @@ $result = $con->query($sql);
         };
 
         // Render the chart
-        const salesChart = new Chart(
-            document.getElementById('salesChart'),
+        const ordersChart = new Chart(
+            document.getElementById('ordersChart'),
             config
         );
     </script>
